@@ -457,13 +457,39 @@ describe('RoomTimeline content ResizeObserver', () => {
   });
 
   it('cancels the delayed initial bottom scroll when the user scrolls up', async () => {
+    const { container } = renderTimeline();
+    vListHandle.scrollToIndex.mockClear();
+
+    act(() => {
+      getScrollEl(container).dispatchEvent(new Event('wheel', { bubbles: true }));
+      lastOnScroll?.(0);
+    });
+    await settleInitialScroll();
+
+    expect(vListHandle.scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel the delayed initial bottom scroll for a Virtua scroll callback', async () => {
     renderTimeline();
     vListHandle.scrollToIndex.mockClear();
 
     act(() => lastOnScroll?.(0));
     await settleInitialScroll();
 
-    expect(vListHandle.scrollToIndex).not.toHaveBeenCalled();
+    expect(vListHandle.scrollToIndex).toHaveBeenCalled();
+  });
+
+  it('does not treat a pointer press as an initial timeline scroll', async () => {
+    const { container } = renderTimeline();
+    vListHandle.scrollToIndex.mockClear();
+
+    act(() => {
+      getScrollEl(container).dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      lastOnScroll?.(0);
+    });
+    await settleInitialScroll();
+
+    expect(vListHandle.scrollToIndex).toHaveBeenCalled();
   });
 
   it('resolves a jump target by event id, not by raw timeline index', async () => {

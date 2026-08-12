@@ -471,6 +471,7 @@ export function RoomTimeline({
   const hasInitialScrolledRef = useRef(false);
   const initialScrollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const initialScrollCancelledRef = useRef(false);
+  const hasUserScrollIntentRef = useRef(false);
   const pendingReadyRef = useRef(false);
   const currentRoomIdRef = useRef(room.roomId);
 
@@ -481,6 +482,7 @@ export function RoomTimeline({
     mountScrollWindowRef.current = Date.now() + 3000;
     currentRoomIdRef.current = room.roomId;
     initialScrollCancelledRef.current = false;
+    hasUserScrollIntentRef.current = false;
     pendingReadyRef.current = false;
     if (initialScrollTimerRef.current !== undefined) {
       clearTimeout(initialScrollTimerRef.current);
@@ -1117,20 +1119,26 @@ export function RoomTimeline({
   useEffect(() => {
     const messageListEl = messageListRef.current;
     if (!messageListEl) return () => {};
-    const release = () => {
+    const releaseAnchor = () => {
       scrollAnchorRef.current = undefined;
     };
-    const releaseOnScrollKey = (evt: KeyboardEvent) => {
-      if (SCROLL_KEYS.has(evt.key)) release();
+    const releaseForScroll = () => {
+      hasUserScrollIntentRef.current = true;
+      releaseAnchor();
     };
-    messageListEl.addEventListener('wheel', release, { passive: true });
-    messageListEl.addEventListener('touchstart', release, { passive: true });
-    messageListEl.addEventListener('pointerdown', release, { passive: true });
+    const releaseOnScrollKey = (evt: KeyboardEvent) => {
+      if (SCROLL_KEYS.has(evt.key)) releaseForScroll();
+    };
+    messageListEl.addEventListener('wheel', releaseForScroll, { passive: true });
+    messageListEl.addEventListener('touchstart', releaseAnchor, { passive: true });
+    messageListEl.addEventListener('touchmove', releaseForScroll, { passive: true });
+    messageListEl.addEventListener('pointerdown', releaseAnchor, { passive: true });
     messageListEl.addEventListener('keydown', releaseOnScrollKey);
     return () => {
-      messageListEl.removeEventListener('wheel', release);
-      messageListEl.removeEventListener('touchstart', release);
-      messageListEl.removeEventListener('pointerdown', release);
+      messageListEl.removeEventListener('wheel', releaseForScroll);
+      messageListEl.removeEventListener('touchstart', releaseAnchor);
+      messageListEl.removeEventListener('touchmove', releaseForScroll);
+      messageListEl.removeEventListener('pointerdown', releaseAnchor);
       messageListEl.removeEventListener('keydown', releaseOnScrollKey);
     };
   }, []);
@@ -1144,7 +1152,7 @@ export function RoomTimeline({
       const distanceFromBottom = v.scrollSize - offset - v.viewportSize;
       syncAtBottom(offset);
 
-      if (distanceFromBottom >= 100) {
+      if (hasUserScrollIntentRef.current && distanceFromBottom >= 100) {
         initialScrollCancelledRef.current = true;
         if (initialScrollTimerRef.current !== undefined) {
           clearTimeout(initialScrollTimerRef.current);
