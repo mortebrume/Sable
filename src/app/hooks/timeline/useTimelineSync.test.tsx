@@ -2186,7 +2186,11 @@ describe('event jump recovery', () => {
     });
 
     expect(result.current.timeline).toBe(contextTimeline);
-    expect(result.current.focusItem).toEqual({ index: 2, scrollTo: true, highlight: true });
+    expect(result.current.focusItem).toEqual({
+      eventId: '$target:test',
+      scrollTo: true,
+      highlight: true,
+    });
   });
 
   it('falls back to the initial timeline when a jump load times out', async () => {

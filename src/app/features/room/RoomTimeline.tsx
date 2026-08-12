@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import * as Sentry from '@sentry/react';
 import {
   Fragment,
   useCallback,
@@ -471,6 +470,7 @@ export function RoomTimeline({
   const mountScrollWindowRef = useRef<number>(Date.now() + 3000);
   const hasInitialScrolledRef = useRef(false);
   const initialScrollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const initialScrollCancelledRef = useRef(false);
   const pendingReadyRef = useRef(false);
   const currentRoomIdRef = useRef(room.roomId);
 
@@ -480,6 +480,7 @@ export function RoomTimeline({
     hasInitialScrolledRef.current = false;
     mountScrollWindowRef.current = Date.now() + 3000;
     currentRoomIdRef.current = room.roomId;
+    initialScrollCancelledRef.current = false;
     pendingReadyRef.current = false;
     if (initialScrollTimerRef.current !== undefined) {
       clearTimeout(initialScrollTimerRef.current);
@@ -492,6 +493,7 @@ export function RoomTimeline({
   const timelineSyncRef = useRef<typeof timelineSync>(null as unknown as typeof timelineSync);
 
   const scrollElRef = useRef<HTMLElement | null>(null);
+  const [scrollElementVersion, setScrollElementVersion] = useState(0);
 
   const scrollToBottom = useCallback(
     (behavior: 'instant' | 'smooth' = 'instant') => {
@@ -516,14 +518,21 @@ export function RoomTimeline({
   );
 
   useLayoutEffect(() => {
-    const scrollEl = messageListRef.current?.firstElementChild;
-    scrollElRef.current = scrollEl instanceof HTMLElement ? scrollEl : null;
-    if (!scrollElRef.current) {
-      Sentry.captureMessage('Timeline: could not resolve the VList scroll container', {
-        level: 'warning',
-        tags: { feature: 'timeline' },
-      });
-    }
+    const messageListEl = messageListRef.current;
+    if (!messageListEl) return () => {};
+
+    const resolveScrollElement = () => {
+      const scrollEl = messageListEl.firstElementChild;
+      const nextScrollEl = scrollEl instanceof HTMLElement ? scrollEl : null;
+      if (nextScrollEl === scrollElRef.current) return;
+      scrollElRef.current = nextScrollEl;
+      setScrollElementVersion((version) => version + 1);
+    };
+
+    resolveScrollElement();
+    const observer = new MutationObserver(resolveScrollElement);
+    observer.observe(messageListEl, { childList: true });
+    return () => observer.disconnect();
   }, []);
 
   const jumpToEvent = useCallback(
@@ -539,6 +548,7 @@ export function RoomTimeline({
     setAtBottom(true);
   }, [setAtBottom]);
   const handleReturnToLive = useCallback(() => {
+    scrollAnchorRef.current = undefined;
     if (eventId) navigateRoom(room.roomId, undefined, { replace: true });
     setAtBottom(true);
   }, [eventId, navigateRoom, room.roomId, setAtBottom]);
@@ -654,6 +664,7 @@ export function RoomTimeline({
   });
 
   timelineSyncRef.current = timelineSync;
+  const focusLiveTimeline = timelineSync.focusLiveTimeline;
 
   const previousPrependVersionRef = useRef(timelineSync.prependVersion);
   const shiftForPrepend = previousPrependVersionRef.current !== timelineSync.prependVersion;
@@ -734,12 +745,15 @@ export function RoomTimeline({
       timelineSync.liveTimelineLinked &&
       vListRef.current
     ) {
+      initialScrollCancelledRef.current = false;
       scrollToBottom();
       initialScrollTimerRef.current = setTimeout(() => {
         initialScrollTimerRef.current = undefined;
+        if (initialScrollCancelledRef.current) return;
         if (processedEventsRef.current.length > 0) {
           scrollToBottom();
           requestAnimationFrame(() => {
+            if (initialScrollCancelledRef.current) return;
             if (processedEventsRef.current.length > 0) {
               scrollToBottom();
               setIsReady(true);
@@ -795,10 +809,6 @@ export function RoomTimeline({
     return () => cancelAnimationFrame(id);
   }, [recalcTopSpacer, timelineSync.eventsLength]);
 
-  useLayoutEffect(() => {
-    restoreScrollPosition();
-  });
-
   const prevBackwardStatusRef = useRef(timelineSync.backwardStatus);
   const wasAtBottomBeforePaginationRef = useRef(false);
 
@@ -808,10 +818,15 @@ export function RoomTimeline({
     if (timelineSync.backwardStatus === 'loading') {
       wasAtBottomBeforePaginationRef.current = atBottomRef.current;
     } else if (prev === 'loading' && timelineSync.backwardStatus === 'idle') {
-      if (scrollAnchorRef.current !== undefined) restoreScrollAnchor();
-      else if (wasAtBottomBeforePaginationRef.current) scrollToBottom();
+      if (scrollOwnerRef.current === 'event' && scrollAnchorRef.current !== undefined) {
+        restoreScrollAnchor();
+      } else if (wasAtBottomBeforePaginationRef.current) scrollToBottom();
     }
   }, [timelineSync.backwardStatus, restoreScrollAnchor, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (shiftForPrepend && scrollAnchorRef.current !== undefined) restoreScrollAnchor();
+  }, [shiftForPrepend, restoreScrollAnchor]);
 
   useEffect(() => {
     if (!timelineSync.focusItem?.scrollTo || !vListRef.current) return;
@@ -880,6 +895,17 @@ export function RoomTimeline({
     jumpToEvent(eventId);
   }, [eventId, room, jumpToEvent]);
 
+  const previousEventIdRef = useRef(eventId);
+  useEffect(() => {
+    const previousEventId = previousEventIdRef.current;
+    previousEventIdRef.current = eventId;
+    if (previousEventId === undefined || eventId !== undefined) return;
+
+    scrollAnchorRef.current = undefined;
+    focusLiveTimeline();
+    setAtBottom(true);
+  }, [eventId, focusLiveTimeline, setAtBottom]);
+
   useEffect(() => {
     if (eventId) return;
     if (isReady) return;
@@ -917,14 +943,13 @@ export function RoomTimeline({
     let contentObserver: ResizeObserver | undefined;
     if (contentEl) {
       contentObserver = new ResizeObserver(() => {
-        restoreScrollPosition();
+        if (scrollOwnerRef.current === 'live' && atBottomRef.current) scrollToBottom();
         syncAtBottom();
       });
       contentObserver.observe(contentEl);
     }
 
     const observer = new ResizeObserver(() => {
-      restoreScrollPosition();
       syncAtBottom();
     });
 
@@ -933,7 +958,7 @@ export function RoomTimeline({
       observer.disconnect();
       contentObserver?.disconnect();
     };
-  }, [syncAtBottom, restoreScrollPosition]);
+  }, [scrollElementVersion, scrollToBottom, syncAtBottom]);
 
   const actions = useTimelineActions({
     room,
@@ -1090,23 +1115,23 @@ export function RoomTimeline({
   ]);
 
   useEffect(() => {
-    const scrollEl = scrollElRef.current;
-    if (!scrollEl) return () => {};
+    const messageListEl = messageListRef.current;
+    if (!messageListEl) return () => {};
     const release = () => {
       scrollAnchorRef.current = undefined;
     };
     const releaseOnScrollKey = (evt: KeyboardEvent) => {
       if (SCROLL_KEYS.has(evt.key)) release();
     };
-    scrollEl.addEventListener('wheel', release, { passive: true });
-    scrollEl.addEventListener('touchstart', release, { passive: true });
-    scrollEl.addEventListener('pointerdown', release, { passive: true });
-    scrollEl.addEventListener('keydown', releaseOnScrollKey);
+    messageListEl.addEventListener('wheel', release, { passive: true });
+    messageListEl.addEventListener('touchstart', release, { passive: true });
+    messageListEl.addEventListener('pointerdown', release, { passive: true });
+    messageListEl.addEventListener('keydown', releaseOnScrollKey);
     return () => {
-      scrollEl.removeEventListener('wheel', release);
-      scrollEl.removeEventListener('touchstart', release);
-      scrollEl.removeEventListener('pointerdown', release);
-      scrollEl.removeEventListener('keydown', releaseOnScrollKey);
+      messageListEl.removeEventListener('wheel', release);
+      messageListEl.removeEventListener('touchstart', release);
+      messageListEl.removeEventListener('pointerdown', release);
+      messageListEl.removeEventListener('keydown', releaseOnScrollKey);
     };
   }, []);
 
@@ -1118,6 +1143,15 @@ export function RoomTimeline({
 
       const distanceFromBottom = v.scrollSize - offset - v.viewportSize;
       syncAtBottom(offset);
+
+      if (distanceFromBottom >= 100) {
+        initialScrollCancelledRef.current = true;
+        if (initialScrollTimerRef.current !== undefined) {
+          clearTimeout(initialScrollTimerRef.current);
+          initialScrollTimerRef.current = undefined;
+        }
+        setIsReady(true);
+      }
 
       if (scrollAnchorRef.current !== undefined) return;
 
@@ -1247,7 +1281,7 @@ export function RoomTimeline({
   // Virtua shift only supports prepends.
   const shouldShift = shiftForPrepend;
   const vListKeyRef = useRef(room.roomId);
-  if (!isReady)
+  if (!isReady && scrollOwner === 'live')
     vListKeyRef.current = `${room.roomId}:${processedEvents.map((event) => event.id).join(',')}`;
 
   useLayoutEffect(() => {
@@ -1283,12 +1317,15 @@ export function RoomTimeline({
   // room. Scrolling up is handled by handleVListScroll.
   useEffect(() => {
     if (!canPaginateBackRef.current) return () => {};
+    if (scrollAnchorRef.current !== undefined) return () => {};
 
     let rafId: number;
     let attempts = 0;
     const MAX_ATTEMPTS = 20;
 
     const check = () => {
+      if (scrollAnchorRef.current !== undefined) return;
+
       const v = vListRef.current;
       if (!v) return;
 

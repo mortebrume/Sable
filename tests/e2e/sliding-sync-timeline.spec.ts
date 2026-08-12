@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { createRoom, registerUser, sendText } from './fixtures/continuwuity';
+import { wheelToBottomUntilVisible } from './fixtures/timelineOrder';
 import { AppShell } from './pages/AppShell';
 
 const PASSWORD = 'test-passw0rd';
@@ -130,6 +131,8 @@ test.describe('sliding sync timeline', () => {
     expect(await page.getByText(sentinel, { exact: true }).count()).toBe(0);
 
     await wheelToTopUntilVisible(page, sentinel);
+
+    await wheelToBottomUntilVisible(page, latest);
   });
 
   test('renders messages received while the room was inactive exactly once, in order, after reopening', async ({

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { createRoom, registerUser, sendMessage, sendText } from './fixtures/continuwuity';
+import { wheelToBottomUntilVisible, wheelToTopUntilVisible } from './fixtures/timelineOrder';
 import { AppShell } from './pages/AppShell';
 
 const PASSWORD = 'test-passw0rd';
@@ -90,10 +91,12 @@ test.describe('permalink jumps', () => {
 
     // The client initially loads only the latest 60 events, so message 20 sits
     // outside the loaded timeline: the jump has to fetch its context.
+    let firstId = '';
     let targetId = '';
     let latestId = '';
     for (let i = 1; i <= HISTORY_SIZE; i += 1) {
       const eventId = await sendText(hsBaseUrl, user.accessToken, room, `${tag}-${i}`, i);
+      if (i === 1) firstId = eventId;
       if (i === 20) targetId = eventId;
       latestId = eventId;
     }
@@ -111,6 +114,17 @@ test.describe('permalink jumps', () => {
 
     await expect(targetRow).toBeVisible({ timeout: 60_000 });
     await expect(app.messageByEventId(latestId)).toHaveCount(0);
+    await expect(app.messageByEventId(firstId)).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+    await expect(targetRow).toBeInViewport();
+    await expect(app.messageByEventId(latestId)).toHaveCount(0);
+    await expect(app.messageByEventId(firstId)).toHaveCount(0);
+
+    await wheelToTopUntilVisible(page, `${tag}-1`);
+    await expect(app.messageByEventId(firstId)).toBeVisible({ timeout: 60_000 });
+
+    await wheelToBottomUntilVisible(page, `${tag}-${HISTORY_SIZE}`);
+    await expect(app.messageByEventId(latestId)).toBeVisible({ timeout: 60_000 });
 
     const sentBody = `${tag}-after-jump`;
     await app.sendTextMessage(sentBody);

@@ -57,3 +57,12 @@ export async function wheelToTopUntilVisible(page: Page, text: string): Promise<
     expect(await page.getByText(text, { exact: true }).count()).toBeGreaterThan(0);
   }).toPass({ timeout: 120_000, intervals: [500] });
 }
+
+/** Scrolls the timeline down until `text` forward-paginates into view. */
+export async function wheelToBottomUntilVisible(page: Page, text: string): Promise<void> {
+  await expect(async () => {
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 2400);
+    expect(await page.getByText(text, { exact: true }).count()).toBeGreaterThan(0);
+  }).toPass({ timeout: 120_000, intervals: [500] });
+}

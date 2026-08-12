@@ -456,6 +456,16 @@ describe('RoomTimeline content ResizeObserver', () => {
     expect(vListHandle.scrollToIndex).not.toHaveBeenCalled();
   });
 
+  it('cancels the delayed initial bottom scroll when the user scrolls up', async () => {
+    renderTimeline();
+    vListHandle.scrollToIndex.mockClear();
+
+    act(() => lastOnScroll?.(0));
+    await settleInitialScroll();
+
+    expect(vListHandle.scrollToIndex).not.toHaveBeenCalled();
+  });
+
   it('resolves a jump target by event id, not by raw timeline index', async () => {
     timelineSync.liveTimelineLinked = false;
     const { rerender } = renderTimeline();
@@ -576,6 +586,22 @@ describe('RoomTimeline content ResizeObserver', () => {
     rerender(<RoomTimeline room={room} editor={{} as Editor} eventId="$evt1" />);
 
     expect(vListHandle.scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it('back-paginates after the user scrolls up from a focused event', async () => {
+    timelineSync.liveTimelineLinked = false;
+    timelineSync.canPaginateBack = true;
+    const { container } = render(
+      <RoomTimeline room={room} editor={{} as Editor} eventId="$evt1" />
+    );
+
+    await settleInitialScroll();
+    act(() => {
+      getScrollEl(container).dispatchEvent(new Event('wheel', { bubbles: true }));
+      lastOnScroll?.(0);
+    });
+
+    expect(timelineSync.handleTimelinePagination).toHaveBeenCalledWith(true);
   });
 
   it('retries an unresolved focus after timeline events are rendered', async () => {
