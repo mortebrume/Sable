@@ -1246,6 +1246,9 @@ export function RoomTimeline({
   processedEventsRef.current = processedEvents;
   // Virtua shift only supports prepends.
   const shouldShift = shiftForPrepend;
+  const vListKeyRef = useRef(room.roomId);
+  if (!isReady)
+    vListKeyRef.current = `${room.roomId}:${processedEvents.map((event) => event.id).join(',')}`;
 
   useLayoutEffect(() => {
     if (!pendingReadyRef.current) return;
@@ -1360,6 +1363,7 @@ export function RoomTimeline({
       >
         <TimelineScrollingProvider value={isTimelineScrolling}>
           <VList<ProcessedEvent>
+            key={vListKeyRef.current}
             ref={vListRef}
             data={processedEvents}
             shift={shouldShift}

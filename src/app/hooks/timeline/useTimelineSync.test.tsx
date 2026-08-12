@@ -2170,6 +2170,25 @@ describe('event jump recovery', () => {
     });
   });
 
+  it('keeps a permalink context window when sliding sync resets the live timeline', async () => {
+    const fixture = setupUnloadedTarget('$target:test');
+    const { result } = renderSyncHook(fixture.room, { isAtBottom: false, mx: fixture.mx });
+
+    await act(async () => {
+      await result.current.loadEventTimeline('$target:test');
+    });
+    const contextTimeline = result.current.timeline;
+    const timelineSet = fixture.room.getUnfilteredTimelineSet();
+
+    await act(async () => {
+      timelineSet.emit(RoomEvent.TimelineReset, undefined, timelineSet, true);
+      await Promise.resolve();
+    });
+
+    expect(result.current.timeline).toBe(contextTimeline);
+    expect(result.current.focusItem).toEqual({ index: 2, scrollTo: true, highlight: true });
+  });
+
   it('falls back to the initial timeline when a jump load times out', async () => {
     vi.useFakeTimers();
     try {

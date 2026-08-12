@@ -729,8 +729,8 @@ export function useTimelineSync({
   useLiveTimelineRefresh(
     room,
     useCallback(() => {
-      applyLiveTimeline(getInitialTimeline(room).linkedTimelines);
       if (focusedTimelineRef.current || inFlightJumpRef.current) return;
+      applyLiveTimeline(getInitialTimeline(room).linkedTimelines);
       if (eventId) {
         void loadEventTimeline(eventId);
         return;
